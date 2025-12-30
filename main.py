@@ -106,6 +106,8 @@ async def download_video(request: DownloadRequest):
         if d['status'] == 'downloading':
             if download_id in download_status:
                 download_status[download_id]['progress'] = d['_percent_str']
+    # Initialize status immediately to prevent 404 race condition
+    download_status[download_id] = {'progress': 0, 'status': 'downloading'}
     async def download_task():
         ydl_opts = {
             'format': request.format_id,
