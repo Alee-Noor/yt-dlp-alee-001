@@ -9,6 +9,8 @@ import asyncio
 from pydantic import BaseModel
 import sys
 import httpx
+import shutil
+import tempfile
 app = FastAPI()
 # Configure CORS
 app.add_middleware(
@@ -17,8 +19,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# REMOVED: ensure_ffmpeg function (caused Read-only file system error)
-# REMOVED: startup_event (calling ensure_ffmpeg)
+# HELPER: Get writable path for cookies
+def get_message_cookie_path():
+    return os.path.join(tempfile.gettempdir(), "cookies.txt")
+@app.on_event("startup")
+async def startup_event():
+    # Workaround for Read-only file system
+    # yt-dlp tries to write to cookiefile, so we copy it to a writable temp dir
+    if os.path.exists("cookies.txt"):
+        try:
+            dest_path = get_message_cookie_path()
+            shutil.copy("cookies.txt", dest_path)
+            print(f"Startup: Copied cookies.txt to {dest_path}")
+        except Exception as e:
+            print(f"Startup Warning: Failed to copy cookies.txt: {e}")
+    else:
+        print("Startup Warning: cookies.txt not found in project root.")
 # Temporary storage for download progress
 download_status = {}
 class VideoRequest(BaseModel):
@@ -35,14 +51,14 @@ def get_video_info(request: VideoRequest):
             'skip_download': True,
             'format': 'best',
             'force_ipv4': True,
-            # 'ffmpeg_location': os.getcwd(), # Relies on system ffmpeg
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language': 'en-us,en;q=0.5',
                 'Sec-Fetch-Mode': 'navigate',
             },
-            'cookiefile': 'cookies.txt',
+            # Use the temp path instead of the read-only repo path
+            'cookiefile': get_message_cookie_path(),
         }
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(request.url, download=False)
@@ -95,9 +111,9 @@ async def download_video(request: DownloadRequest):
             'format': request.format_id,
             'outtmpl': temp_filename,
             'progress_hooks': [progress_hook],
-             # 'ffmpeg_location': os.getcwd(), # Relies on system ffmpeg
              'force_ipv4': True,
-             'cookiefile': 'cookies.txt',
+             # Use the temp path here too
+             'cookiefile': get_message_cookie_path(),
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
