@@ -95,7 +95,7 @@ def get_video_info(request: VideoRequest):
                 'Accept-Language': 'en-us,en;q=0.5',
                 'Sec-Fetch-Mode': 'navigate',
             },
-            'cookiefile': '/home/ubuntu/cookies.txt',
+            'cookiefile': 'cookies.txt',
         }
 
         with YoutubeDL(ydl_opts) as ydl:
@@ -155,7 +155,7 @@ async def download_video(request: DownloadRequest):
             'progress_hooks': [progress_hook],
              # 'ffmpeg_location': os.getcwd(),
              'force_ipv4': True,
-             'cookiefile': '/home/ubuntu/cookies.txt',
+             'cookiefile': 'cookies.txt',
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -229,4 +229,5 @@ async def proxy_image(url: str):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)  
