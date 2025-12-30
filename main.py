@@ -1,4 +1,3 @@
-# main.py
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, Response
@@ -8,14 +7,9 @@ import os
 import uuid
 import asyncio
 from pydantic import BaseModel
-import shutil
-import zipfile
-import urllib.request
 import sys
 import httpx
-
 app = FastAPI()
-
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -23,62 +17,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-def ensure_ffmpeg():
-    """Check if ffmpeg is installed, if not download it."""
-    if shutil.which("ffmpeg") or os.path.exists("ffmpeg.exe"):
-        print("FFmpeg is detected.")
-        return
-
-    print("FFmpeg not found. Downloading (this may take a minute)...")
-    try:
-        # Use a reliable source for static builds (Gyan.dev is standard for Windows)
-        url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-        zip_path = "ffmpeg_temp.zip"
-        
-        # Download
-        urllib.request.urlretrieve(url, zip_path)
-        print("Download complete. Extracting...")
-        
-        # Extract only ffmpeg.exe and ffprobe.exe
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            for file in zip_ref.namelist():
-                if file.endswith("ffmpeg.exe") or file.endswith("ffprobe.exe"):
-                    # Extract to current directory, flattening the path
-                    filename = os.path.basename(file)
-                    with zip_ref.open(file) as source, open(filename, "wb") as target:
-                        shutil.copyfileobj(source, target)
-                        
-        print("FFmpeg installed successfully.")
-        
-        # Cleanup
-        os.remove(zip_path)
-        
-    except Exception as e:
-        print(f"Failed to auto-install FFmpeg: {e}")
-        print("Please install FFmpeg manually.")
-
-@app.on_event("startup")
-async def startup_event():
-    # Run in a separate thread to not block startup if it takes time, 
-    # though valid to block here to ensure readiness.
-    # For simplicity, we just run it. 
-    # Note: On some deployments, writing to filesystem is restricted, 
-    # but this is a local dev context.
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, ensure_ffmpeg)
-
-
+# REMOVED: ensure_ffmpeg function (caused Read-only file system error)
+# REMOVED: startup_event (calling ensure_ffmpeg)
 # Temporary storage for download progress
 download_status = {}
-
 class VideoRequest(BaseModel):
     url: str
-
 class DownloadRequest(BaseModel):
     url: str
     format_id: str
-
 @app.post("/api/video-info")
 def get_video_info(request: VideoRequest):
     try:
@@ -88,7 +35,7 @@ def get_video_info(request: VideoRequest):
             'skip_download': True,
             'format': 'best',
             'force_ipv4': True,
-            # 'ffmpeg_location': os.getcwd(),
+            # 'ffmpeg_location': os.getcwd(), # Relies on system ffmpeg
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -97,7 +44,6 @@ def get_video_info(request: VideoRequest):
             },
             'cookiefile': 'cookies.txt',
         }
-
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(request.url, download=False)
             
@@ -110,7 +56,6 @@ def get_video_info(request: VideoRequest):
                         'type': 'Video' if f.get('vcodec') != 'none' else 'Audio',
                         'size': f.get('filesize', 0)
                     })
-
             return JSONResponse({
                 'title': info['title'],
                 'thumbnail': info['thumbnail'],
@@ -120,7 +65,6 @@ def get_video_info(request: VideoRequest):
     
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 @app.post("/api/download")
 async def download_video(request: DownloadRequest):
     download_id = str(uuid.uuid4())
@@ -141,19 +85,17 @@ async def download_video(request: DownloadRequest):
                 download_status[d_id]['status'] = 'completed'
         except Exception as e:
              download_status[d_id] = {'status': 'error', 'error': str(e)}
-
     # Define hook outside to be picklable/accessible if needed, but inner func is fine for threads
     def progress_hook(d):
         if d['status'] == 'downloading':
             if download_id in download_status:
                 download_status[download_id]['progress'] = d['_percent_str']
-
     async def download_task():
         ydl_opts = {
             'format': request.format_id,
             'outtmpl': temp_filename,
             'progress_hooks': [progress_hook],
-             # 'ffmpeg_location': os.getcwd(),
+             # 'ffmpeg_location': os.getcwd(), # Relies on system ffmpeg
              'force_ipv4': True,
              'cookiefile': 'cookies.txt',
             'http_headers': {
@@ -176,11 +118,9 @@ async def download_video(request: DownloadRequest):
                 pass
         if download_id in download_status:
             del download_status[download_id]
-
     asyncio.create_task(download_task())
     
     return {'download_id': download_id}
-
 @app.get("/api/progress/{download_id}")
 async def get_download_progress(download_id: str):
     status = download_status.get(download_id)
@@ -188,13 +128,11 @@ async def get_download_progress(download_id: str):
         raise HTTPException(status_code=404, detail="Download ID not found")
     
     return status
-
 def remove_file(path: str):
     try:
         os.remove(path)
     except Exception:
         pass
-
 @app.get("/api/download-file/{download_id}")
 async def get_download_file(download_id: str, background_tasks: BackgroundTasks):
     temp_filename = f"temp_{download_id}.mp4"
@@ -208,7 +146,6 @@ async def get_download_file(download_id: str, background_tasks: BackgroundTasks)
         temp_filename,
         headers={'Content-Disposition': f'attachment; filename="download_{download_id}.mp4"'}
     )
-
 @app.get("/api/proxy-image")
 async def proxy_image(url: str):
     if not url:
@@ -225,9 +162,6 @@ async def proxy_image(url: str):
             )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to fetch image: {str(e)}")
-
-
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)  
+    uvicorn.run(app, host="0.0.0.0", port=8000)
